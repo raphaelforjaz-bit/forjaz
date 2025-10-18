@@ -1,51 +1,64 @@
 <script>
-  // Função para chamar a API e salvar paciente
+(function () {
+  function val(id) {
+    const el = document.getElementById(id);
+    return el ? (el.value || '').trim() : '';
+  }
+
   async function salvarPaciente() {
     try {
-      // Monta os dados dos campos (ajuste IDs conforme seus inputs)
-      const nome = document.getElementById('nomeCompleto').value;
-      const urlFoto = document.getElementById('urlFoto').value;
-      const medicacao = document.getElementById('medicacao').value;
-      const observacao = document.getElementById('observacao').value;
-      const dataExame = document.getElementById('dataExame').value;
-      const dataConsulta = document.getElementById('dataConsulta').value;
-      const localConsulta = document.getElementById('localConsulta').value;
-
       const payload = {
-        name: nome,
-        avatarUrl: urlFoto,
-        medications: [ medicacao ],
-        nextExam: { name: observacao, date: dataExame },
-        nextAppointment: { location: localConsulta, date: dataConsulta }
+        name: val('nomeCompleto'),
+        avatarUrl: val('urlFoto'),
+        // se você tiver múltiplas medicações, depois adaptamos para um array dinâmico
+        medications: [
+          {
+            name: val('medicacao'),
+            note: '' // se tiver um campo de nota separado, coloque o id aqui
+          }
+        ],
+        nextExam: {
+          name: val('observacao'),     // ajuste se tiver um campo separado para "nome do exame"
+          date: val('dataExame'),
+          note: ''                     // ajuste se tiver um campo de observação do exame
+        },
+        nextAppointment: {
+          description: '',             // se tiver um campo de descrição da consulta, coloca o id aqui
+          date: val('dataConsulta'),
+          location: val('localConsulta')
+        }
       };
 
-      const response = await fetch('/api/patients', {
+      const resp = await fetch('/api/patients', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: payload })
       });
 
-      const json = await response.json();
+      const json = await resp.json();
+      console.log('Resposta API /api/patients:', json);
 
-      if (!response.ok || !json.ok) {
+      if (!resp.ok || !json.ok) {
         throw new Error(json.error || 'Erro ao salvar paciente');
       }
 
-      alert('Paciente salvo com sucesso!');
-      // Limpar formulario ou dar redirect conforme desejar
-      document.getElementById('modalPaciente').reset();
-
+      alert('✅ Paciente salvo com sucesso!');
+      const form = document.getElementById('modalPaciente');
+      if (form && typeof form.reset === 'function') form.reset();
     } catch (err) {
       console.error(err);
-      alert('Falha ao salvar paciente: ' + err.message);
+      alert('❌ Falha ao salvar paciente: ' + (err?.message || err));
     }
   }
 
-  // Adiciona o listener ao botão
-  document.getElementById('btnSalvarPaciente').addEventListener('click', (e) => {
-    e.preventDefault();
-    salvarPaciente();
-  });
+  const btn = document.getElementById('btnSalvarPaciente');
+  if (btn) {
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      salvarPaciente();
+    });
+  } else {
+    console.warn('Botão #btnSalvarPaciente não encontrado no DOM.');
+  }
+})();
 </script>
