@@ -1,4 +1,5 @@
-// api/patients.js — Vercel Serverless Function (CommonJS)
+// api/patients.js — Vercel Serverless Function (CommonJS para sites estáticos)
+
 const { initializeApp, cert, getApps } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 
@@ -10,9 +11,10 @@ function getAdminApp() {
   const privateKeyRaw = process.env.FIREBASE_PRIVATE_KEY;
 
   if (!projectId || !clientEmail || !privateKeyRaw) {
-    throw new Error('Faltam variáveis FIREBASE_PROJECT_ID/CLIENT_EMAIL/PRIVATE_KEY no Vercel (Production).');
+    throw new Error('⚠ Variáveis do Firebase não configuradas no Vercel (Production).');
   }
 
+  // CONVERTE \n em quebras reais
   const privateKey = privateKeyRaw.replace(/\\n/g, '\n');
 
   return initializeApp({
@@ -20,25 +22,27 @@ function getAdminApp() {
   });
 }
 
-// Lê o corpo JSON de uma Serverless Function “pura” (sem Next)
+// Lê o corpo JSON ("payload") do request manualmente
 async function readJson(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
-  const str = Buffer.concat(chunks).toString() || '{}';
+  const raw = Buffer.concat(chunks).toString() || '{}';
   try {
-    return JSON.parse(str);
+    return JSON.parse(raw);
   } catch {
     return {};
   }
 }
 
 module.exports = async (req, res) => {
+  // Permite só POST
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
 
   try {
+    // Pega o corpo enviado
     const { id, data } = await readJson(req);
 
     if (!data || typeof data !== 'object') {
@@ -47,17 +51,18 @@ module.exports = async (req, res) => {
 
     const app = getAdminApp();
     const db = getFirestore(app);
-    const col = db.collection('patients');
+    const collection = db.collection('patients');
 
+    // Se veio id → atualiza o doc / senão → cria novo
     if (id) {
-      await col.doc(String(id)).set(data, { merge: true });
+      await collection.doc(String(id)).set(data, { merge: true });
     } else {
-      await col.add(data);
+      await collection.add(data);
     }
 
     return res.status(200).json({ ok: true });
-  } catch (e) {
-    console.error('API /api/patients error:', e);
-    return res.status(500).json({ ok: false, error: e.message || 'Erro interno' });
+  } catch (err) {
+    console.error('❌ Erro API /patients:', err);
+    return res.status(500).json({ ok: false, error: err.message || 'Erro interno' });
   }
 };
