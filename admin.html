@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Painel de Administração</title>
 
+  <!-- UI -->
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -17,7 +18,7 @@
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     .modal { transition: opacity 0.3s ease; }
     .modal-content { max-height: 90vh; }
-    .tooltip { position: absolute; background-color: #334155; color: white; padding: 8px 12px; border-radius: 6px; font-size: 0.875rem; z-index: 50; transform: translate(-50%, -120%); opacity: 0; transition: opacity 0.2s; pointer-events: none; white-space: nowrap; }
+    .tooltip { position: absolute; background-color: #334155; color: white; padding: 8px 12px; border-radius: 6px; font-size: .875rem; z-index: 50; transform: translate(-50%, -120%); opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap; }
     .tooltip.visible { opacity: 1; }
   </style>
 </head>
@@ -42,7 +43,7 @@
       </div>
     </header>
 
-    <!-- Content -->
+    <!-- Conteúdo -->
     <main class="flex-grow container mx-auto p-4 sm:p-6 lg:p-8">
       <div class="flex justify-between items-center mb-6">
         <h2 class="text-2xl font-bold text-slate-700">Seus Pacientes</h2>
@@ -74,7 +75,7 @@
     </main>
   </div>
 
-  <!-- Modal Mensagem -->
+  <!-- Modal: Mensagem -->
   <div id="message-modal" class="modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden z-20">
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
       <div class="flex justify-between items-center mb-4">
@@ -98,7 +99,7 @@
     </div>
   </div>
 
-  <!-- Modal Editar/Adicionar -->
+  <!-- Modal: Editar / Novo -->
   <div id="edit-modal" class="modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden z-30">
     <div class="modal-content bg-white rounded-xl shadow-2xl w-full max-w-2xl p-6 overflow-y-auto">
       <div class="flex justify-between items-center mb-6">
@@ -193,7 +194,7 @@
 
   <!-- App -->
   <script type="module">
-    /* Firebase SDK v11 */
+    /* Firebase SDK v11 – leitura direta */
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import {
       getFirestore, collection, getDocs, doc, getDoc
@@ -209,17 +210,17 @@
     };
 
     const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
+    const db  = getFirestore(app);
 
     /* Estado/refs */
     let currentPatientId = null;
     let isEditMode = false;
 
     const patientListBody = document.getElementById('patient-list-body');
-    const messageModal = document.getElementById('message-modal');
-    const editModal = document.getElementById('edit-modal');
-    const newPatientBtn = document.getElementById('new-patient-btn');
-    const tooltip = document.getElementById('tooltip');
+    const messageModal    = document.getElementById('message-modal');
+    const editModal       = document.getElementById('edit-modal');
+    const newPatientBtn   = document.getElementById('new-patient-btn');
+    const tooltip         = document.getElementById('tooltip');
 
     const openModal  = (m) => m.classList.remove('hidden');
     const closeModal = (m) => m.classList.add('hidden');
@@ -232,23 +233,22 @@
 
     /* ---------- LISTAGEM ---------- */
     async function fetchPatients() {
-      const loadingContainer = document.getElementById('loading-container');
-      const tableContainer   = document.getElementById('table-container');
+      const loadingContainer  = document.getElementById('loading-container');
+      const tableContainer    = document.getElementById('table-container');
       const noPatientsMessage = document.getElementById('no-patients-message');
 
       loadingContainer.classList.remove('hidden');
       tableContainer.classList.add('hidden');
 
       try {
-        const querySnapshot = await getDocs(collection(db, "patients"));
+        const snap = await getDocs(collection(db, "patients"));
         patientListBody.innerHTML = '';
 
-        if (querySnapshot.empty) {
+        if (snap.empty) {
           noPatientsMessage.classList.remove('hidden');
         } else {
           noPatientsMessage.classList.add('hidden');
-
-          querySnapshot.forEach((d) => {
+          snap.forEach((d) => {
             const patient = d.data();
             const patientId = d.id;
 
@@ -262,9 +262,9 @@
                   <button data-patient-id="${patientId}" class="link-btn text-green-600 hover:text-green-800" title="Copiar Link do Paciente"><i data-feather="link"></i></button>
                   <button data-patient-id="${patientId}" data-patient-name="${patient.name || ''}" class="message-btn text-sky-600 hover:text-sky-800" title="Enviar Mensagem"><i data-feather="message-square"></i></button>
                   <button data-patient-id="${patientId}" data-patient-name="${patient.name || ''}" class="edit-btn text-slate-500 hover:text-slate-800" title="Editar"><i data-feather="edit-2"></i></button>
+                  <button data-patient-id="${patientId}" data-patient-name="${patient.name || ''}" class="delete-btn text-rose-500 hover:text-rose-700" title="Excluir"><i data-feather="trash-2"></i></button>
                 </div>
-              </td>
-            `;
+              </td>`;
             patientListBody.appendChild(row);
           });
         }
@@ -284,7 +284,7 @@
       const targetButton = e.target.closest('button');
       if (!targetButton) return;
 
-      const patientId = targetButton.dataset.patientId;
+      const patientId   = targetButton.dataset.patientId;
       const patientName = targetButton.dataset.patientName;
 
       if (targetButton.classList.contains('link-btn')) {
@@ -300,6 +300,17 @@
         isEditMode = true;
         currentPatientId = patientId;
         await loadPatientDataForEdit(patientId);
+      } else if (targetButton.classList.contains('delete-btn')) {
+        if (!patientId) return;
+        const ok = confirm(`Excluir o paciente "${patientName || patientId}"? Esta ação não pode ser desfeita.`);
+        if (!ok) return;
+        try {
+          await deletePatient(patientId);
+          await fetchPatients();
+        } catch (err) {
+          console.error(err);
+          alert('Erro ao excluir paciente: ' + (err?.message || err));
+        }
       }
     });
 
@@ -337,19 +348,19 @@
       currentPatientId = null;
 
       document.getElementById('edit-modal-title').textContent = "Adicionar Novo Paciente";
-      document.getElementById('save-btn-text').textContent = "Salvar Novo Paciente";
+      document.getElementById('save-btn-text').textContent   = "Salvar Novo Paciente";
 
       document.getElementById('edit-form').reset();
       document.getElementById('medications-container').innerHTML = '';
-      document.getElementById('dailycare-container').innerHTML = '';
-      document.getElementById('edit-feedback').textContent = '';
+      document.getElementById('dailycare-container').innerHTML    = '';
+      document.getElementById('edit-feedback').textContent        = '';
 
       openModal(editModal);
       feather.replace();
     }
 
     async function loadPatientDataForEdit(patientId) {
-      const ref = doc(db, "patients", patientId);
+      const ref  = doc(db, "patients", patientId);
       const snap = await getDoc(ref);
 
       if (!snap.exists()) {
@@ -360,7 +371,7 @@
       const data = snap.data();
 
       document.getElementById('edit-modal-title').textContent = `Editar Plano de: ${data.name || ''}`;
-      document.getElementById('save-btn-text').textContent = "Salvar Alterações";
+      document.getElementById('save-btn-text').textContent    = "Salvar Alterações";
 
       document.getElementById('edit-name').value   = data.name || '';
       document.getElementById('edit-avatar').value = data.avatarUrl || '';
@@ -414,21 +425,34 @@
       return `${slug}-${randomSuffix}`;
     }
 
-    /* ---------- API helper (grava via servidor) ---------- */
+    /* ---------- API helpers (server) ---------- */
     async function apiSavePatient(data, id) {
       const resp = await fetch('/api/patients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(id ? { id, data } : { data })
       });
-      const json = await resp.json();
-      if (!resp.ok || !json.ok) throw new Error(json.error || 'Falha ao salvar');
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok || json?.ok === false) {
+        throw new Error(json?.error || 'Falha ao salvar');
+      }
       return json;
+    }
+
+    async function deletePatient(id) {
+      const resp = await fetch(`/api/patients?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE'
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok || json?.ok === false) {
+        throw new Error(json?.error || 'Falha ao excluir');
+      }
+      return true;
     }
 
     /* ---------- SALVAR/ATUALIZAR ---------- */
     async function savePatientData() {
-      const saveBtn = document.getElementById('save-changes-btn');
+      const saveBtn    = document.getElementById('save-changes-btn');
       const feedbackEl = document.getElementById('edit-feedback');
 
       const patientName = (document.getElementById('edit-name')?.value || '').trim();
@@ -487,7 +511,8 @@
         setTimeout(() => { closeModal(editModal); }, 1200);
       } catch (error) {
         console.error('Erro ao salvar dados:', error);
-        feedbackEl.textContent = 'Erro ao salvar. Tente novamente.';
+        const msg = error?.message || 'Erro ao salvar. Tente novamente.';
+        feedbackEl.textContent = msg;
         feedbackEl.classList.add('text-red-500');
       } finally {
         saveBtn.disabled = false;
@@ -501,7 +526,7 @@
       const text = (document.getElementById('message-text')?.value || '').trim();
       if (!currentPatientId || !text) return;
 
-      const sendBtn = document.getElementById('send-btn');
+      const sendBtn   = document.getElementById('send-btn');
       const feedbackEl = document.getElementById('message-feedback');
 
       sendBtn.disabled = true;
@@ -509,16 +534,12 @@
       document.getElementById('send-loader').classList.remove('hidden');
 
       try {
-        // lê mensagens existentes (leitura no client é liberada)
+        // lê mensagens existentes (leitura no client é liberada pelas regras)
         const ref = doc(db, 'patients', currentPatientId);
         const snap = await getDoc(ref);
         const prev = (snap.exists() && Array.isArray(snap.data().messages)) ? snap.data().messages : [];
 
-        const newMessage = {
-          text,
-          sender: 'Dr. Forjaz',
-          timestamp: new Date().toISOString()
-        };
+        const newMessage = { text, sender: 'Dr. Forjaz', timestamp: new Date().toISOString() };
 
         await apiSavePatient({ messages: [...prev, newMessage] }, currentPatientId);
 
@@ -528,7 +549,7 @@
         setTimeout(() => { closeModal(messageModal); }, 1200);
       } catch (error) {
         console.error('Erro ao enviar mensagem:', error);
-        feedbackEl.textContent = 'Erro ao enviar. Tente novamente.';
+        feedbackEl.textContent = error?.message || 'Erro ao enviar. Tente novamente.';
         feedbackEl.classList.add('text-red-500');
       } finally {
         sendBtn.disabled = false;
