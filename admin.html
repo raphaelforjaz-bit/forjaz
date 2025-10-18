@@ -1,25 +1,555 @@
-<script>
-// exemplo simples de listagem (Firestore Web v8)
-async function listarPacientes() {
-  const listEl = document.getElementById('lista-pacientes'); // ul/ol/div
-  listEl.innerHTML = 'Carregando...';
-  try {
-    const snap = await firebase.firestore().collection('patients').orderBy('name', 'asc').limit(50).get();
-    if (snap.empty) {
-      listEl.innerHTML = 'Nenhum paciente encontrado.';
-      return;
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Painel de Administração</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <script src="https://unpkg.com/feather-icons"></script>
+
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .loader { border: 4px solid #f3f3f3; border-radius: 50%; border-top: 4px solid #3498db; width: 40px; height: 40px; animation: spin 2s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .modal { transition: opacity 0.3s ease; }
+    .modal-content { max-height: 90vh; }
+    .tooltip { position: absolute; background-color: #334155; color: white; padding: 8px 12px; border-radius: 6px; font-size: 0.875rem; z-index: 50; transform: translate(-50%, -120%); opacity: 0; transition: opacity 0.2s; pointer-events: none; white-space: nowrap; }
+    .tooltip.visible { opacity: 1; }
+  </style>
+</head>
+
+<body class="bg-slate-100 text-slate-800">
+  <!-- Tooltip -->
+  <div id="tooltip" class="tooltip">Link copiado!</div>
+
+  <div class="min-h-screen flex flex-col">
+    <!-- Header -->
+    <header class="bg-white shadow-sm sticky top-0 z-10">
+      <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between h-16">
+          <div class="flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-600">
+              <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"></path><path d="M12 8v4l2 2"></path>
+            </svg>
+            <h1 class="text-xl font-bold text-slate-700 ml-2">Painel Administrativo</h1>
+          </div>
+          <div><span class="text-slate-600">Dr. Forjaz</span></div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <main class="flex-grow container mx-auto p-4 sm:p-6 lg:p-8">
+      <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold text-slate-700">Seus Pacientes</h2>
+        <button id="new-patient-btn" class="bg-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-sky-700 transition-colors flex items-center">
+          <i data-feather="plus" class="mr-2 h-5 w-5"></i>Novo Paciente
+        </button>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+        <div id="loading-container" class="p-8 flex justify-center items-center"><div class="loader"></div></div>
+
+        <div id="table-container" class="hidden">
+          <table class="w-full text-left">
+            <thead class="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th class="p-4 font-semibold">Nome do Paciente</th>
+                <th class="p-4 font-semibold hidden sm:table-cell">ID do Paciente</th>
+                <th class="p-4 font-semibold text-center">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="patient-list-body"></tbody>
+          </table>
+
+          <div id="no-patients-message" class="p-8 text-center text-slate-500 hidden">
+            <p>Nenhum paciente encontrado. Clique em "Novo Paciente" para começar.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal Mensagem -->
+  <div id="message-modal" class="modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden z-20">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+      <div class="flex justify-between items-center mb-4">
+        <h3 id="message-modal-title" class="text-xl font-bold">Enviar Mensagem</h3>
+        <button class="close-modal-btn text-slate-400 hover:text-slate-600"><i data-feather="x"></i></button>
+      </div>
+
+      <div>
+        <label for="message-text" class="block text-sm font-medium text-slate-700 mb-2">Mensagem:</label>
+        <textarea id="message-text" rows="4" class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition"></textarea>
+        <p id="message-feedback" class="text-sm text-green-600 mt-2 h-5"></p>
+      </div>
+
+      <div class="mt-6 flex justify-end space-x-4">
+        <button class="cancel-btn bg-slate-100 text-slate-700 font-semibold py-2 px-4 rounded-lg hover:bg-slate-200 transition-colors">Cancelar</button>
+        <button id="send-btn" class="bg-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-sky-700 transition-colors flex items-center">
+          <span id="send-btn-text">Enviar</span>
+          <div id="send-loader" class="loader !w-5 !h-5 !border-2 !border-t-transparent hidden ml-2"></div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Editar/Adicionar -->
+  <div id="edit-modal" class="modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden z-30">
+    <div class="modal-content bg-white rounded-xl shadow-2xl w-full max-w-2xl p-6 overflow-y-auto">
+      <div class="flex justify-between items-center mb-6">
+        <h3 id="edit-modal-title" class="text-xl font-bold">Editar Plano de Saúde</h3>
+        <button class="close-modal-btn text-slate-400 hover:text-slate-600"><i data-feather="x"></i></button>
+      </div>
+
+      <form id="edit-form" class="space-y-6">
+        <!-- Básico -->
+        <div>
+          <h4 class="font-semibold text-lg mb-2 border-b pb-2">Informações Básicas</h4>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+            <div>
+              <label for="edit-name" class="block text-sm font-medium text-slate-700">Nome Completo</label>
+              <input type="text" id="edit-name" class="mt-1 w-full border border-slate-300 rounded-lg p-2"/>
+            </div>
+            <div>
+              <label for="edit-avatar" class="block text-sm font-medium text-slate-700">URL da Foto</label>
+              <input type="text" id="edit-avatar" class="mt-1 w-full border border-slate-300 rounded-lg p-2"/>
+            </div>
+          </div>
+        </div>
+
+        <!-- Medicações -->
+        <div>
+          <h4 class="font-semibold text-lg mb-2 border-b pb-2">Medicações</h4>
+          <div id="medications-container" class="space-y-2 mt-2"></div>
+          <button type="button" id="add-medication-btn" class="mt-2 text-sm text-sky-600 font-semibold hover:text-sky-800 flex items-center">
+            <i data-feather="plus-circle" class="mr-1 h-4 w-4"></i>Adicionar Medicação
+          </button>
+        </div>
+
+        <!-- Cuidados -->
+        <div>
+          <h4 class="font-semibold text-lg mb-2 border-b pb-2">Cuidados Diários</h4>
+          <div id="dailycare-container" class="space-y-2 mt-2"></div>
+          <button type="button" id="add-dailycare-btn" class="mt-2 text-sm text-sky-600 font-semibold hover:text-sky-800 flex items-center">
+            <i data-feather="plus-circle" class="mr-1 h-4 w-4"></i>Adicionar Cuidado
+          </button>
+        </div>
+
+        <!-- Próximo Exame -->
+        <div>
+          <h4 class="font-semibold text-lg mb-2 border-b pb-2">Próximo Exame</h4>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+            <div>
+              <label for="exam-name" class="block text-sm font-medium text-slate-700">Nome do Exame</label>
+              <input type="text" id="exam-name" class="mt-1 w-full border border-slate-300 rounded-lg p-2"/>
+            </div>
+            <div>
+              <label for="exam-date" class="block text-sm font-medium text-slate-700">Data</label>
+              <input type="text" id="exam-date" class="mt-1 w-full border border-slate-300 rounded-lg p-2"/>
+            </div>
+            <div class="md:col-span-2">
+              <label for="exam-note" class="block text-sm font-medium text-slate-700">Observação</label>
+              <input type="text" id="exam-note" class="mt-1 w-full border border-slate-300 rounded-lg p-2"/>
+            </div>
+          </div>
+        </div>
+
+        <!-- Próxima Consulta -->
+        <div>
+          <h4 class="font-semibold text-lg mb-2 border-b pb-2">Próxima Consulta</h4>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+            <div>
+              <label for="appt-desc" class="block text-sm font-medium text-slate-700">Descrição</label>
+              <input type="text" id="appt-desc" class="mt-1 w-full border border-slate-300 rounded-lg p-2"/>
+            </div>
+            <div>
+              <label for="appt-date" class="block text-sm font-medium text-slate-700">Data e Hora</label>
+              <input type="text" id="appt-date" class="mt-1 w-full border border-slate-300 rounded-lg p-2"/>
+            </div>
+            <div class="md:col-span-2">
+              <label for="appt-loc" class="block text-sm font-medium text-slate-700">Local</label>
+              <input type="text" id="appt-loc" class="mt-1 w-full border border-slate-300 rounded-lg p-2"/>
+            </div>
+          </div>
+        </div>
+      </form>
+
+      <p id="edit-feedback" class="text-sm text-green-600 mt-4 h-5"></p>
+
+      <div class="mt-6 flex justify-end space-x-4">
+        <button class="cancel-btn bg-slate-100 text-slate-700 font-semibold py-2 px-4 rounded-lg hover:bg-slate-200 transition-colors">Cancelar</button>
+        <button id="save-changes-btn" class="bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 transition-colors flex items-center">
+          <span id="save-btn-text">Salvar</span>
+          <div id="save-loader" class="loader !w-5 !h-5 !border-2 !border-t-transparent hidden ml-2"></div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- App -->
+  <script type="module">
+    /* Firebase SDK v11 */
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import {
+      getFirestore, collection, getDocs, doc, getDoc
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAOFgCKp27ETKDcqq6sU3t0GaJiKIk3xPg",
+      authDomain: "forjaz-2e73d.firebaseapp.com",
+      projectId: "forjaz-2e73d",
+      storageBucket: "forjaz-2e73d.appspot.com",
+      messagingSenderId: "202416797496",
+      appId: "1:202416797496:web:4d6121303d5cce10c7b3cd"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    /* Estado/refs */
+    let currentPatientId = null;
+    let isEditMode = false;
+
+    const patientListBody = document.getElementById('patient-list-body');
+    const messageModal = document.getElementById('message-modal');
+    const editModal = document.getElementById('edit-modal');
+    const newPatientBtn = document.getElementById('new-patient-btn');
+    const tooltip = document.getElementById('tooltip');
+
+    const openModal  = (m) => m.classList.remove('hidden');
+    const closeModal = (m) => m.classList.add('hidden');
+
+    function setupModal(modalId) {
+      const modal = document.getElementById(modalId);
+      modal.querySelectorAll('.close-modal-btn, .cancel-btn')
+           .forEach(btn => btn.addEventListener('click', () => closeModal(modal)));
     }
-    listEl.innerHTML = '';
-    snap.forEach(doc => {
-      const d = doc.data();
-      const li = document.createElement('div');
-      li.textContent = `${d.name || doc.id}`;
-      listEl.appendChild(li);
+
+    /* ---------- LISTAGEM ---------- */
+    async function fetchPatients() {
+      const loadingContainer = document.getElementById('loading-container');
+      const tableContainer   = document.getElementById('table-container');
+      const noPatientsMessage = document.getElementById('no-patients-message');
+
+      loadingContainer.classList.remove('hidden');
+      tableContainer.classList.add('hidden');
+
+      try {
+        const querySnapshot = await getDocs(collection(db, "patients"));
+        patientListBody.innerHTML = '';
+
+        if (querySnapshot.empty) {
+          noPatientsMessage.classList.remove('hidden');
+        } else {
+          noPatientsMessage.classList.add('hidden');
+
+          querySnapshot.forEach((d) => {
+            const patient = d.data();
+            const patientId = d.id;
+
+            const row = document.createElement('tr');
+            row.className = 'border-b border-slate-200 hover:bg-slate-50 relative';
+            row.innerHTML = `
+              <td class="p-4 font-medium">${patient.name || '(Sem nome)'}</td>
+              <td class="p-4 text-slate-500 hidden sm:table-cell">${patientId}</td>
+              <td class="p-4 text-center">
+                <div class="flex justify-center items-center space-x-4">
+                  <button data-patient-id="${patientId}" class="link-btn text-green-600 hover:text-green-800" title="Copiar Link do Paciente"><i data-feather="link"></i></button>
+                  <button data-patient-id="${patientId}" data-patient-name="${patient.name || ''}" class="message-btn text-sky-600 hover:text-sky-800" title="Enviar Mensagem"><i data-feather="message-square"></i></button>
+                  <button data-patient-id="${patientId}" data-patient-name="${patient.name || ''}" class="edit-btn text-slate-500 hover:text-slate-800" title="Editar"><i data-feather="edit-2"></i></button>
+                </div>
+              </td>
+            `;
+            patientListBody.appendChild(row);
+          });
+        }
+      } catch (error) {
+        console.error("Erro ao buscar pacientes: ", error);
+        noPatientsMessage.textContent = 'Ocorreu um erro ao carregar os pacientes.';
+        noPatientsMessage.classList.remove('hidden');
+      } finally {
+        loadingContainer.classList.add('hidden');
+        tableContainer.classList.remove('hidden');
+        feather.replace();
+      }
+    }
+
+    /* ---------- CLIQUES NA TABELA ---------- */
+    patientListBody.addEventListener('click', async (e) => {
+      const targetButton = e.target.closest('button');
+      if (!targetButton) return;
+
+      const patientId = targetButton.dataset.patientId;
+      const patientName = targetButton.dataset.patientName;
+
+      if (targetButton.classList.contains('link-btn')) {
+        const linkText = `?id=${patientId}`;
+        copyToClipboard(linkText, targetButton);
+      } else if (targetButton.classList.contains('message-btn')) {
+        currentPatientId = patientId;
+        document.getElementById('message-modal-title').textContent = `Enviar Mensagem para ${patientName || ''}`;
+        document.getElementById('message-text').value = '';
+        document.getElementById('message-feedback').textContent = '';
+        openModal(messageModal);
+      } else if (targetButton.classList.contains('edit-btn')) {
+        isEditMode = true;
+        currentPatientId = patientId;
+        await loadPatientDataForEdit(patientId);
+      }
     });
-  } catch (e) {
-    console.error(e);
-    listEl.innerHTML = 'Erro ao carregar: ' + e.message;
-  }
-}
-document.addEventListener('DOMContentLoaded', listarPacientes);
-</script>
+
+    function copyToClipboard(text, targetButton) {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.top = "0";
+      textArea.style.left = "0";
+      textArea.style.position = "fixed";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+        const ok = document.execCommand('copy');
+        showTooltip(targetButton, ok ? 'Link relativo copiado!' : 'Erro ao copiar');
+      } catch (err) {
+        console.error('Erro ao copiar', err);
+        showTooltip(targetButton, 'Erro ao copiar');
+      }
+      document.body.removeChild(textArea);
+    }
+
+    function showTooltip(target, message) {
+      const rect = target.getBoundingClientRect();
+      tooltip.textContent = message;
+      tooltip.style.left = `${rect.left + rect.width / 2}px`;
+      tooltip.style.top = `${rect.top}px`;
+      tooltip.classList.add('visible');
+      setTimeout(() => { tooltip.classList.remove('visible'); }, 2000);
+    }
+
+    /* ---------- NOVO / EDITAR ---------- */
+    function openNewPatientModal() {
+      isEditMode = false;
+      currentPatientId = null;
+
+      document.getElementById('edit-modal-title').textContent = "Adicionar Novo Paciente";
+      document.getElementById('save-btn-text').textContent = "Salvar Novo Paciente";
+
+      document.getElementById('edit-form').reset();
+      document.getElementById('medications-container').innerHTML = '';
+      document.getElementById('dailycare-container').innerHTML = '';
+      document.getElementById('edit-feedback').textContent = '';
+
+      openModal(editModal);
+      feather.replace();
+    }
+
+    async function loadPatientDataForEdit(patientId) {
+      const ref = doc(db, "patients", patientId);
+      const snap = await getDoc(ref);
+
+      if (!snap.exists()) {
+        console.error("Paciente não encontrado para edição.");
+        return;
+      }
+
+      const data = snap.data();
+
+      document.getElementById('edit-modal-title').textContent = `Editar Plano de: ${data.name || ''}`;
+      document.getElementById('save-btn-text').textContent = "Salvar Alterações";
+
+      document.getElementById('edit-name').value   = data.name || '';
+      document.getElementById('edit-avatar').value = data.avatarUrl || '';
+
+      populateDynamicFields('medications', data.medications || []);
+      populateDynamicFields('dailycare',    data.dailyCare   || []);
+
+      document.getElementById('exam-name').value = data.nextExam?.name || '';
+      document.getElementById('exam-date').value = data.nextExam?.date || '';
+      document.getElementById('exam-note').value = data.nextExam?.note || '';
+
+      document.getElementById('appt-desc').value = data.nextAppointment?.description || '';
+      document.getElementById('appt-date').value = data.nextAppointment?.date || '';
+      document.getElementById('appt-loc').value  = data.nextAppointment?.location || '';
+
+      openModal(editModal);
+      feather.replace();
+    }
+
+    function populateDynamicFields(type, arr) {
+      const container = document.getElementById(`${type}-container`);
+      container.innerHTML = '';
+      arr.forEach(item => addDynamicField(type, item));
+    }
+
+    function addDynamicField(type, item = {}) {
+      const container = document.getElementById(`${type}-container`);
+      const div = document.createElement('div');
+      div.className = 'flex items-center space-x-2 dynamic-field';
+
+      if (type === 'medications') {
+        div.innerHTML = `
+          <input type="text" placeholder="Nome do Medicamento" class="w-1/2 border border-slate-300 rounded-lg p-2 name-field" value="${item.name || ''}">
+          <input type="text" placeholder="Horário" class="w-1/2 border border-slate-300 rounded-lg p-2 time-field" value="${item.time || ''}">
+          <button type="button" class="remove-field-btn text-rose-500 hover:text-rose-700"><i data-feather="x-circle" class="h-5 w-5"></i></button>`;
+      } else {
+        div.innerHTML = `
+          <input type="text" placeholder="Título do Cuidado" class="w-1/2 border border-slate-300 rounded-lg p-2 title-field" value="${item.title || ''}">
+          <input type="text" placeholder="Descrição" class="w-1/2 border border-slate-300 rounded-lg p-2 description-field" value="${item.description || ''}">
+          <button type="button" class="remove-field-btn text-rose-500 hover:text-rose-700"><i data-feather="x-circle" class="h-5 w-5"></i></button>`;
+      }
+
+      container.appendChild(div);
+      div.querySelector('.remove-field-btn').addEventListener('click', () => div.remove());
+      feather.replace();
+    }
+
+    function generatePatientId(name) {
+      const slug = (name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const randomSuffix = Math.random().toString(36).substring(2, 8);
+      return `${slug}-${randomSuffix}`;
+    }
+
+    /* ---------- API helper (grava via servidor) ---------- */
+    async function apiSavePatient(data, id) {
+      const resp = await fetch('/api/patients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(id ? { id, data } : { data })
+      });
+      const json = await resp.json();
+      if (!resp.ok || !json.ok) throw new Error(json.error || 'Falha ao salvar');
+      return json;
+    }
+
+    /* ---------- SALVAR/ATUALIZAR ---------- */
+    async function savePatientData() {
+      const saveBtn = document.getElementById('save-changes-btn');
+      const feedbackEl = document.getElementById('edit-feedback');
+
+      const patientName = (document.getElementById('edit-name')?.value || '').trim();
+      if (!patientName) {
+        feedbackEl.textContent = 'O nome do paciente é obrigatório.';
+        feedbackEl.classList.add('text-red-500');
+        return;
+      }
+
+      saveBtn.disabled = true;
+      document.getElementById('save-btn-text').classList.add('hidden');
+      document.getElementById('save-loader').classList.remove('hidden');
+
+      const medicationsData = Array.from(document.querySelectorAll('#medications-container .dynamic-field'))
+        .map(div => ({
+          name: (div.querySelector('.name-field')?.value || '').trim(),
+          time: (div.querySelector('.time-field')?.value || '').trim()
+        }))
+        .filter(m => m.name);
+
+      const dailyCareData = Array.from(document.querySelectorAll('#dailycare-container .dynamic-field'))
+        .map(div => ({
+          title: (div.querySelector('.title-field')?.value || '').trim(),
+          description: (div.querySelector('.description-field')?.value || '').trim()
+        }))
+        .filter(d => d.title);
+
+      const patientData = {
+        name: patientName,
+        avatarUrl: (document.getElementById('edit-avatar')?.value || '').trim(),
+        medications: medicationsData,
+        dailyCare: dailyCareData,
+        nextExam: {
+          name: (document.getElementById('exam-name')?.value || '').trim(),
+          date: (document.getElementById('exam-date')?.value || '').trim(),
+          note: (document.getElementById('exam-note')?.value || '').trim()
+        },
+        nextAppointment: {
+          description: (document.getElementById('appt-desc')?.value || '').trim(),
+          date: (document.getElementById('appt-date')?.value || '').trim(),
+          location: (document.getElementById('appt-loc')?.value || '').trim()
+        }
+      };
+
+      try {
+        let patientId = currentPatientId;
+        if (!isEditMode) patientId = generatePatientId(patientData.name);
+
+        await apiSavePatient(patientData, patientId);
+
+        feedbackEl.textContent = `Paciente ${isEditMode ? 'atualizado' : 'salvo'} com sucesso!`;
+        feedbackEl.classList.remove('text-red-500');
+        feedbackEl.classList.add('text-green-600');
+
+        await fetchPatients();
+        setTimeout(() => { closeModal(editModal); }, 1200);
+      } catch (error) {
+        console.error('Erro ao salvar dados:', error);
+        feedbackEl.textContent = 'Erro ao salvar. Tente novamente.';
+        feedbackEl.classList.add('text-red-500');
+      } finally {
+        saveBtn.disabled = false;
+        document.getElementById('save-btn-text').classList.remove('hidden');
+        document.getElementById('save-loader').classList.add('hidden');
+      }
+    }
+
+    /* ---------- ENVIAR MENSAGEM ---------- */
+    async function sendMessage() {
+      const text = (document.getElementById('message-text')?.value || '').trim();
+      if (!currentPatientId || !text) return;
+
+      const sendBtn = document.getElementById('send-btn');
+      const feedbackEl = document.getElementById('message-feedback');
+
+      sendBtn.disabled = true;
+      document.getElementById('send-btn-text').classList.add('hidden');
+      document.getElementById('send-loader').classList.remove('hidden');
+
+      try {
+        // lê mensagens existentes (leitura no client é liberada)
+        const ref = doc(db, 'patients', currentPatientId);
+        const snap = await getDoc(ref);
+        const prev = (snap.exists() && Array.isArray(snap.data().messages)) ? snap.data().messages : [];
+
+        const newMessage = {
+          text,
+          sender: 'Dr. Forjaz',
+          timestamp: new Date().toISOString()
+        };
+
+        await apiSavePatient({ messages: [...prev, newMessage] }, currentPatientId);
+
+        feedbackEl.textContent = 'Mensagem enviada com sucesso!';
+        feedbackEl.classList.remove('text-red-500');
+        feedbackEl.classList.add('text-green-600');
+        setTimeout(() => { closeModal(messageModal); }, 1200);
+      } catch (error) {
+        console.error('Erro ao enviar mensagem:', error);
+        feedbackEl.textContent = 'Erro ao enviar. Tente novamente.';
+        feedbackEl.classList.add('text-red-500');
+      } finally {
+        sendBtn.disabled = false;
+        document.getElementById('send-btn-text').classList.remove('hidden');
+        document.getElementById('send-loader').classList.add('hidden');
+      }
+    }
+
+    /* ---------- BOOT ---------- */
+    window.onload = function() {
+      fetchPatients();
+      setupModal('message-modal');
+      setupModal('edit-modal');
+
+      document.getElementById('add-medication-btn').addEventListener('click', () => addDynamicField('medications'));
+      document.getElementById('add-dailycare-btn').addEventListener('click', () => addDynamicField('dailycare'));
+      document.getElementById('save-changes-btn').addEventListener('click', savePatientData);
+      newPatientBtn.addEventListener('click', openNewPatientModal);
+
+      document.getElementById('send-btn').addEventListener('click', sendMessage);
+    };
+  </script>
+</body>
+</html>
