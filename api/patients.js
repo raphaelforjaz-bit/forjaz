@@ -1,68 +1,90 @@
-// api/patients.js — Vercel Serverless Function (CommonJS para sites estáticos)
+// api/patients.js — Vercel Serverless (Firebase Admin + Firestore)
+// Suporta POST (criar/atualizar com merge) e DELETE (excluir documento)
 
-const { initializeApp, cert, getApps } = require('firebase-admin/app');
-const { getFirestore } = require('firebase-admin/firestore');
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 
-function getAdminApp() {
-  if (getApps().length) return getApps()[0];
+// Inicializa Firebase Admin (singleton)
+function getAdminDB() {
+  if (!getApps().length) {
+    const projectId   = process.env.FIREBASE_PROJECT_ID;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    let privateKey    = process.env.FIREBASE_PRIVATE_KEY || '';
 
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKeyRaw = process.env.FIREBASE_PRIVATE_KEY;
-
-  if (!projectId || !clientEmail || !privateKeyRaw) {
-    throw new Error('⚠ Variáveis do Firebase não configuradas no Vercel (Production).');
-  }
-
-  // CONVERTE \n em quebras reais
-  const privateKey = privateKeyRaw.replace(/\\n/g, '\n');
-
-  return initializeApp({
-    credential: cert({ projectId, clientEmail, privateKey }),
-  });
-}
-
-// Lê o corpo JSON ("payload") do request manualmente
-async function readJson(req) {
-  const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  const raw = Buffer.concat(chunks).toString() || '{}';
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
-module.exports = async (req, res) => {
-  // Permite só POST
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
-    return res.status(405).json({ ok: false, error: 'Method not allowed' });
-  }
-
-  try {
-    // Pega o corpo enviado
-    const { id, data } = await readJson(req);
-
-    if (!data || typeof data !== 'object') {
-      return res.status(400).json({ ok: false, error: 'Payload inválido' });
+    if (!projectId || !clientEmail || !privateKey) {
+      throw new Error(
+        'Variáveis FIREBASE_PROJECT_ID / FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY ausentes.'
+      );
     }
 
-    const app = getAdminApp();
-    const db = getFirestore(app);
-    const collection = db.collection('patients');
+    // Normaliza privateKey: remove aspas acidentais e converte "\n" em quebras
+    privateKey = privateKey.replace(/^"|"$/g, '');
+    if (privateKey.includes('\\n')) privateKey = privateKey.replace(/\\n/g, '\n');
 
-    // Se veio id → atualiza o doc / senão → cria novo
-    if (id) {
-      await collection.doc(String(id)).set(data, { merge: true });
-    } else {
-      await collection.add(data);
+    initializeApp({
+      credential: cert({ projectId, clientEmail, privateKey }),
+    });
+  }
+  return getFirestore();
+}
+
+function sendJSON(res, status, body) {
+  res.status(status)
+    .setHeader('Content-Type', 'application/json')
+    .end(JSON.stringify(body));
+}
+
+export default async function handler(req, res) {
+  // CORS simples
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
+  try {
+    const db = getAdminDB();
+    const col = db.collection('patients');
+
+    if (req.method === 'POST') {
+      // Espera: { id?: string, data: object }
+      const { id, data } = req.body || {};
+      if (!data || typeof data !== 'object') {
+        return sendJSON(res, 400, { ok: false, error: 'Payload inválido: "data" é obrigatório.' });
+      }
+
+      if (id) {
+        // Atualiza/cria com merge no ID informado
+        await col.doc(String(id)).set(data, { merge: true });
+        return sendJSON(res, 200, { ok: true, id: String(id) });
+      } else {
+        // Cria novo doc sem ID custom (não é o fluxo do admin, mas suportado)
+        const ref = await col.add(data);
+        return sendJSON(res, 200, { ok: true, id: ref.id });
+      }
     }
 
-    return res.status(200).json({ ok: true });
+    if (req.method === 'DELETE') {
+      // Espera: /api/patients?id=SEU_ID
+      const { id } = req.query || {};
+      if (!id) return sendJSON(res, 400, { ok: false, error: 'Parâmetro "id" é obrigatório.' });
+
+      const docRef = col.doc(String(id));
+      const snap = await docRef.get();
+      if (!snap.exists) {
+        return sendJSON(res, 404, { ok: false, error: 'Paciente não encontrado.' });
+      }
+
+      await docRef.delete();
+      return sendJSON(res, 200, { ok: true });
+    }
+
+    return sendJSON(res, 405, { ok: false, error: 'Método não permitido.' });
   } catch (err) {
-    console.error('❌ Erro API /patients:', err);
-    return res.status(500).json({ ok: false, error: err.message || 'Erro interno' });
+    console.error('API /api/patients error:', err);
+    return sendJSON(res, 500, { ok: false, error: err?.message || 'Erro interno' });
   }
-};
+}
