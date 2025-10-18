@@ -1,64 +1,25 @@
 <script>
-(function () {
-  function val(id) {
-    const el = document.getElementById(id);
-    return el ? (el.value || '').trim() : '';
-  }
-
-  async function salvarPaciente() {
-    try {
-      const payload = {
-        name: val('nomeCompleto'),
-        avatarUrl: val('urlFoto'),
-        // se você tiver múltiplas medicações, depois adaptamos para um array dinâmico
-        medications: [
-          {
-            name: val('medicacao'),
-            note: '' // se tiver um campo de nota separado, coloque o id aqui
-          }
-        ],
-        nextExam: {
-          name: val('observacao'),     // ajuste se tiver um campo separado para "nome do exame"
-          date: val('dataExame'),
-          note: ''                     // ajuste se tiver um campo de observação do exame
-        },
-        nextAppointment: {
-          description: '',             // se tiver um campo de descrição da consulta, coloca o id aqui
-          date: val('dataConsulta'),
-          location: val('localConsulta')
-        }
-      };
-
-      const resp = await fetch('/api/patients', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: payload })
-      });
-
-      const json = await resp.json();
-      console.log('Resposta API /api/patients:', json);
-
-      if (!resp.ok || !json.ok) {
-        throw new Error(json.error || 'Erro ao salvar paciente');
-      }
-
-      alert('✅ Paciente salvo com sucesso!');
-      const form = document.getElementById('modalPaciente');
-      if (form && typeof form.reset === 'function') form.reset();
-    } catch (err) {
-      console.error(err);
-      alert('❌ Falha ao salvar paciente: ' + (err?.message || err));
+// exemplo simples de listagem (Firestore Web v8)
+async function listarPacientes() {
+  const listEl = document.getElementById('lista-pacientes'); // ul/ol/div
+  listEl.innerHTML = 'Carregando...';
+  try {
+    const snap = await firebase.firestore().collection('patients').orderBy('name', 'asc').limit(50).get();
+    if (snap.empty) {
+      listEl.innerHTML = 'Nenhum paciente encontrado.';
+      return;
     }
-  }
-
-  const btn = document.getElementById('btnSalvarPaciente');
-  if (btn) {
-    btn.addEventListener('click', function (e) {
-      e.preventDefault();
-      salvarPaciente();
+    listEl.innerHTML = '';
+    snap.forEach(doc => {
+      const d = doc.data();
+      const li = document.createElement('div');
+      li.textContent = `${d.name || doc.id}`;
+      listEl.appendChild(li);
     });
-  } else {
-    console.warn('Botão #btnSalvarPaciente não encontrado no DOM.');
+  } catch (e) {
+    console.error(e);
+    listEl.innerHTML = 'Erro ao carregar: ' + e.message;
   }
-})();
+}
+document.addEventListener('DOMContentLoaded', listarPacientes);
 </script>
